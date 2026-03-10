@@ -514,6 +514,20 @@ retry:
   max_backoff_ms: 30000
 ```
 
+### Claude subprocess fails with `stream-json` (v2.1.71+)
+
+**Symptom:** `kj_run` or `kj_code` using Claude as coder fails immediately. The subprocess exits with an error when using `--output-format stream-json`.
+
+**Cause:** Claude Code v2.1.71+ requires the `--verbose` flag when combining `--print` with `--output-format stream-json`. Without it, the subprocess exits with an error.
+
+**Fix:** Update Karajan Code to v1.13.1+:
+
+```bash
+npm install -g karajan-code@latest
+```
+
+Karajan v1.13.1 automatically adds `--verbose` alongside `--output-format stream-json` in both `runTask` and `reviewTask`.
+
 ### Where are session logs stored?
 
 Sessions are stored locally. View them with:

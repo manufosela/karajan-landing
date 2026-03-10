@@ -221,6 +221,72 @@ Eventos del pipeline kj_run (v1.8+):
 
 **Por qué:** Los hosts MCP recibían eventos individuales `*:start`/`*:end` pero no tenían una vista acumulativa. Cada host tenía que mantener su propia máquina de estados para reconstruir el progreso del pipeline. El tracker centraliza esta lógica — un evento, un snapshot, cero gestión de estado en el host. Para herramientas single-agent (`kj_code`/`kj_review`/`kj_plan`), antes no había feedback de progreso; ahora los hosts ven logs de tracker start/end.
 
+## Fase 11: Feedback en Tiempo Real y Detección de Stalls (v1.9)
+
+**Qué cambió:** Se añadió streaming de output en tiempo real desde todas las stages del pipeline, detección de stalls para agentes colgados, y logging basado en ficheros para monitorización en vivo.
+
+**Adiciones clave:**
+- Callbacks `onOutput` en tiempo real para planner, triage, researcher y refactorer
+- Detector de stalls con heartbeat (30s), warning (2min) y critical (5min)
+- Log de ejecución en fichero (`<proyecto>/.kj/run.log`) monitorizable con `tail -f` o `kj_status`
+- Output Stream-JSON para Claude CLI — streaming NDJSON en tiempo real en lugar de texto buffered
+- Fixes de compatibilidad con subproceso Claude: strip env var `CLAUDECODE`, desconectar stdin, leer de stderr
+
+**Por qué:** Los hosts MCP y usuarios CLI no tenían visibilidad sobre lo que ocurría durante stages largas del pipeline. El detector de stalls captura agentes colgados antes de perder tiempo, y el run log hace observable cada ejecución del pipeline en tiempo real.
+
+## Fase 12: Inteligencia del Pipeline (v1.10–v1.11)
+
+**Qué cambió:** Triage se convirtió en director del pipeline, Solomon ganó poderes de supervisor, y el servidor MCP añadió gestión de agentes y handshake de preflight.
+
+**Adiciones clave:**
+- Triage como director del pipeline: analiza complejidad de la tarea y activa roles dinámicamente
+- Solomon supervisor: se ejecuta tras cada iteración con 4 reglas (max_files, stale_iterations, dependency_guard, scope_guard)
+- Handshake de preflight (`kj_preflight`): requiere confirmación humana de la config de agentes antes de ejecutar
+- Herramienta `kj_agents`: cambia asignaciones de agentes IA por rol al vuelo
+- Merge de config session-scoped vs project-scoped (3 niveles: defaults < global < proyecto)
+- Auto-status de Planning Game: marca cards PG como "In Progress" al inicio, "To Validate" al completar
+- Standby por rate-limit con auto-retry y backoff exponencial
+
+**Por qué:** El pipeline necesitaba inteligencia — no toda tarea necesita todos los roles, y las asignaciones de agentes deben ser flexibles sin editar ficheros de config. El handshake de preflight evita que los agentes IA sobreescriban configuraciones silenciosamente.
+
+## Fase 13: Mediación del Reviewer y Filtrado de Scope (v1.12)
+
+**Qué cambió:** Se añadió mediación inteligente del reviewer para evitar que issues fuera de scope bloqueen el pipeline, y Solomon ganó la capacidad de arbitrar stalls del reviewer.
+
+**Adiciones clave:**
+- Filtro de scope: auto-aplaza concerns del reviewer sobre ficheros no incluidos en el diff en lugar de bloquear
+- Tracking de issues diferidos: almacenados como deuda técnica estructurada en `session.deferred_issues`
+- Mediación de Solomon en stall del reviewer: arbitra antes de parar — puede sobreescribir, continuar con guía, o crear subtareas
+- Regla Solomon `reviewer_overreach`: detecta flagging consistente fuera de scope
+- Contexto diferido en el prompt del coder: el coder recibe deuda técnica tracked como contexto para futuras iteraciones
+
+**Por qué:** Los reviewers frecuentemente flaggeaban issues en ficheros no relacionados con la tarea actual, causando bucles innecesarios coder/reviewer. El filtro de scope permite al pipeline enfocarse en lo que importa mientras trackea concerns diferidos para trabajo futuro.
+
+## Fase 14: BecarIA Gateway e Integración CI/CD (v1.13)
+
+**Qué cambió:** Integración completa CI/CD con GitHub PRs via BecarIA Gateway. Las PRs se convierten en la fuente de verdad del pipeline.
+
+**Adiciones clave:**
+- Integración BecarIA Gateway: eventos repository_dispatch para GitHub Actions
+- Creación temprana de PR: PR creada tras la primera iteración del coder, iteraciones siguientes hacen push incremental
+- Comentarios de todos los agentes: cada stage del pipeline publica resultados como comentarios en la PR
+- Reviews formales de PR: el reviewer despacha APPROVE/REQUEST_CHANGES via GitHub API
+- Dispatch configurable: tipos de evento custom y prefijo opcional `[Agent]`
+- Templates de workflows: `becaria-gateway.yml`, `automerge.yml`, `houston-override.yml`
+- `kj init --scaffold-becaria` y checks BecarIA en `kj doctor`
+
+**Por qué:** Ejecutar Karajan localmente es potente, pero los equipos necesitan integración CI/CD. BecarIA Gateway tiende el puente — las PRs de GitHub se convierten en la interfaz donde toda la actividad del pipeline es visible, revisable y auditable por todo el equipo.
+
+## Fase 15: Compatibilidad con Claude Code v2.1.71 (v1.13.1–v1.13.2)
+
+**Qué cambió:** Se corrigió la compatibilidad con Claude Code v2.1.71+ que introdujo un nuevo requisito del flag `--verbose`, y se resolvieron problemas de validación de bin entries en npm 11.x.
+
+**Fixes clave:**
+- Flag `--verbose` requerido: Claude Code v2.1.71 requiere `--verbose` al combinar `--print` con `--output-format stream-json`. Añadido a `runTask` y `reviewTask`
+- Compatibilidad bin entries npm 11.x: wrappers de bin movidos a `bin/kj.js` y `bin/karajan-mcp.js` con extensión `.js` para paquetes ESM
+
+**Por qué:** Las actualizaciones de herramientas externas (Claude Code CLI, npm) pueden romper la integración de subprocesos en cualquier momento. Estos fixes aseguran que Karajan se mantenga compatible con las últimas versiones de sus dependencias.
+
 ## Decisiones Arquitectónicas Clave
 
 ### CLI wrapping vs llamadas directas a API

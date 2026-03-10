@@ -221,6 +221,72 @@ kj_run pipeline events (v1.8+):
 
 **Why:** MCP hosts received individual `*:start`/`*:end` events but had no cumulative view. Each host had to maintain its own state machine to reconstruct pipeline progress. The tracker centralizes this logic — one event, one snapshot, zero host-side state management. For single-agent tools (`kj_code`/`kj_review`/`kj_plan`), there was previously zero progress feedback; now hosts see start/end tracker logs.
 
+## Phase 11: Real-Time Feedback & Stall Detection (v1.9)
+
+**What changed:** Added real-time output streaming from all pipeline stages, stall detection for hung agents, and file-based run logging for live monitoring.
+
+**Key additions:**
+- Real-time `onOutput` callbacks for planner, triage, researcher, and refactorer
+- Stall detector with heartbeat (30s), warning (2min), and critical (5min) thresholds
+- File-based run log (`<project>/.kj/run.log`) for live monitoring via `tail -f` or `kj_status`
+- Stream-JSON output for Claude CLI — real-time NDJSON streaming instead of buffered text
+- Claude subprocess compatibility fixes: strip `CLAUDECODE` env var, detach stdin, read from stderr
+
+**Why:** MCP hosts and CLI users had zero visibility into what was happening during long-running pipeline stages. The stall detector catches hung agents before they waste time, and the run log makes every pipeline execution observable in real time.
+
+## Phase 12: Pipeline Intelligence (v1.10–v1.11)
+
+**What changed:** Triage became the pipeline director, Solomon gained supervisor powers, and the MCP server added agent management and preflight handshakes.
+
+**Key additions:**
+- Triage as pipeline director: analyzes task complexity and activates roles dynamically
+- Solomon supervisor: runs after each iteration with 4 rules (max_files, stale_iterations, dependency_guard, scope_guard)
+- Preflight handshake (`kj_preflight`): requires human confirmation of agent config before execution
+- `kj_agents` tool: change AI agent assignments per role on the fly
+- Session-scoped vs project-scoped config merge (3-tier: defaults < global < project)
+- Planning Game auto-status: marks PG cards as "In Progress" at start, "To Validate" on completion
+- Rate-limit standby with auto-retry and exponential backoff
+
+**Why:** The pipeline needed intelligence — not every task needs every role, and agent assignments should be flexible without editing config files. The preflight handshake prevents AI agents from silently overriding configurations.
+
+## Phase 13: Reviewer Mediation & Scope Filtering (v1.12)
+
+**What changed:** Added intelligent reviewer mediation to prevent out-of-scope issues from blocking the pipeline, and Solomon gained the ability to arbitrate reviewer stalls.
+
+**Key additions:**
+- Scope filter: auto-defers reviewer concerns about files not in the diff instead of blocking
+- Deferred issues tracking: stored as structured technical debt in `session.deferred_issues`
+- Solomon mediation on reviewer stall: arbitrates before stopping — can override, continue with guidance, or create subtasks
+- Solomon rule `reviewer_overreach`: detects consistent out-of-scope flagging
+- Deferred context in coder prompt: coder receives tracked tech debt as context for future iterations
+
+**Why:** Reviewers frequently flagged issues in files unrelated to the current task, causing unnecessary coder/reviewer loops. The scope filter lets the pipeline focus on what matters while tracking deferred concerns for future work.
+
+## Phase 14: BecarIA Gateway & CI/CD Integration (v1.13)
+
+**What changed:** Full CI/CD integration with GitHub PRs via BecarIA Gateway. PRs become the source of truth for the pipeline.
+
+**Key additions:**
+- BecarIA Gateway integration: repository_dispatch events for GitHub Actions
+- Early PR creation: PR created after first coder iteration, subsequent iterations push incrementally
+- All-agent dispatch comments: every pipeline stage posts results as PR comments
+- Formal PR reviews: reviewer dispatches APPROVE/REQUEST_CHANGES via GitHub API
+- Configurable dispatch: custom event types and optional `[Agent]` prefix
+- Workflow templates: `becaria-gateway.yml`, `automerge.yml`, `houston-override.yml`
+- `kj init --scaffold-becaria` and `kj doctor` BecarIA checks
+
+**Why:** Running Karajan locally is powerful, but teams need CI/CD integration. BecarIA Gateway bridges the gap — GitHub PRs become the interface where all pipeline activity is visible, reviewable, and auditable by the whole team.
+
+## Phase 15: Claude Code v2.1.71 Compatibility (v1.13.1–v1.13.2)
+
+**What changed:** Fixed compatibility with Claude Code v2.1.71+ which introduced a new requirement for the `--verbose` flag, and resolved npm 11.x bin entry validation issues.
+
+**Key fixes:**
+- `--verbose` flag required: Claude Code v2.1.71 requires `--verbose` when combining `--print` with `--output-format stream-json`. Added to both `runTask` and `reviewTask`
+- npm 11.x bin entry compatibility: bin wrappers moved to `bin/kj.js` and `bin/karajan-mcp.js` with proper `.js` extension for ESM packages
+
+**Why:** External tool updates (Claude Code CLI, npm) can break subprocess integration at any time. These fixes ensure Karajan stays compatible with the latest versions of its dependencies.
+
 ## Key Architectural Decisions
 
 ### CLI wrapping vs direct API calls
