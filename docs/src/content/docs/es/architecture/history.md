@@ -780,6 +780,46 @@ triage → domainHints: ["dental", "clinical"]
 
 **Por que:** Los agentes IA que escriben codigo para una industria especifica (dental, logistica, finanzas) toman mejores decisiones cuando entienden el dominio de negocio — nombres correctos, edge cases reales, reglas de validacion adecuadas. El Domain Curator anade este contexto a coste cero de LLM (loader + sintetizador deterministicos), reutilizable entre proyectos.
 
+## Fase 50: Karajan Brain + Solomon Judge (v2.0.0)
+
+**v2.0.0** — Rediseño arquitectónico mayor. Introduce **Karajan Brain** como orquestador central con IA y refina **Solomon** de jefe del pipeline a juez IA consultado solo en dilemas genuinos.
+
+**Añadidos clave:**
+- `KarajanBrainRole` — orquestador central con IA que enruta toda la comunicación entre roles
+- `brain-coordinator.js` — integra 5 módulos de Brain (queue, enrichment, verification, actions, compression)
+- `feedback-queue.js` — cola de mensajes tipados que reemplaza el string plano `last_reviewer_feedback`
+- `feedback-enrichment.js` — transforma feedback vago en planes accionables con pistas de ficheros y severidad
+- `verification-gate.js` — detecta iteraciones del coder sin cambios vía `git diff --numstat` + untracked
+- `direct-actions.js` — comandos allow-listed que Brain puede ejecutar (npm install, gitignore, create_file, git_add)
+- `role-output-compressor.js` — estrategias por rol con 40-70% de ahorro de tokens entre roles
+- Smart init — asigna agentes a roles por capacidad (claude=5, codex=4, gemini=3, aider/opencode=2), diversifica reviewer del coder
+- Solomon refinado a 4 skills consultivos: security-vs-deadline, conflicting-quality-gates, stalled-loop-analysis, risk-evaluation
+- Bypass determinístico de seguridad: si el reviewer tiene issues de seguridad, Brain salta Solomon y envía directo al coder
+
+**Arquitectura:**
+```
+triage → Brain (enruta) → researcher/architect/planner → Brain (comprime) → coder
+                                                                              ↓
+                                                 Brain (verifica cambios) ←───┘
+                                                                              ↓
+                                         reviewer → Brain (enriquece feedback)
+                                                                              ↓
+                             issue seguridad? → coder (Solomon bypassed) ─────┤
+                             dilema? → Solomon (opinión) → Brain decide ──────┤
+                                                                              ↓
+                                   tester + security + impeccable (blocking)
+                                                                              ↓
+                                                                      audit → PR
+```
+
+**Eliminado:**
+- Flujo v1 de feedback basado en strings (`last_reviewer_feedback`)
+- Solomon como jefe del pipeline / árbitro bloqueante
+- Boilerplate por rol (~200 LOC × 10 roles vía clase base `AgentRole`)
+- Paths de config muertos y capa proxy sin uso
+
+**Por qué:** v1 acumuló paths de comunicación ad-hoc entre roles (feedback string, solomon-como-jefe, responsabilidades mezcladas). v2 centraliza la inteligencia de orquestación en Brain, mantiene a Solomon como juez IA enfocado en dilemas reales, y rinde 40-70% de ahorro de tokens vía compresión por rol. Guía completa de migración en [MIGRATION-v2.md](https://github.com/manufosela/karajan-code/blob/main/MIGRATION-v2.md).
+
 ## Decisiones Arquitectonicas Clave
 
 ### CLI wrapping vs llamadas directas a API
