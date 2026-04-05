@@ -5,6 +5,21 @@ description: Cómo ha evolucionado la arquitectura de Karajan Code.
 
 Esta página documenta las decisiones arquitectónicas principales y cómo Karajan Code evolucionó desde un simple script orquestador hasta un pipeline modular multi-agente.
 
+## Fase 50.2: Cobertura completa de Brain + revisión UX (v2.0.2)
+
+**v2.0.2** — Extiende la cobertura de Brain a todos los stages y hace que `kj run` diga de verdad qué está haciendo.
+
+**Añadido:**
+- **Compresión + cola de feedback de Brain en todos los stages**: outputs de researcher, architect y planner se comprimen para métricas; fallos de tester y security entran en la cola tipada con enriquecimiento para la siguiente iteración del coder.
+- **Brain decide en max_iterations**: al llegar a max_iterations Brain inspecciona la cola — issues de seguridad → pause al humano (no puede finalizar con security pendiente), correctness/tests → extiende iteraciones, cola vacía → finaliza, style-only → consulta Solomon como asesor. Solomon ya no se invoca directamente en max_iterations.
+- **Líneas de acción del agente en modo quiet**: `kj run` ahora interpreta los bloques tool_use del stream-json de Claude en líneas de acción concisas (`Read packages/server/index.js`, `Bash $ npm install express`) — ya no hace falta modo verbose para ver qué hace el coder.
+- **Heartbeat visible en modo quiet**: los eventos `agent:heartbeat` (cada 30s) ya no se suprimen — `kj run` muestra `⏳ claude working — 45s elapsed` en vez de parecer colgado durante llamadas largas.
+- **Banner ASCII impreso en `kj run`** independientemente de la detección de TTY.
+
+**Cambiado:**
+- Alertas de reglas renombradas de `solomon:alert` a `brain:rules-alert` (display: "⚠️ Rules alert" en vez de "⚖️ Solomon alert"). El motor de reglas emite telemetría; no es una invocación de Solomon.
+- Todos los handlers `onOutput` de stages pasan por el helper unificado `emitAgentOutput`: `kind=tool` → `agent:action` (visible en quiet mode), otros → `agent:output` (solo verbose).
+
 ## Fase 50.1: Brain cableado al pipeline (v2.0.1)
 
 **v2.0.1** — Release de parche que de verdad enciende Brain. v2.0.0 publicó los módulos de Brain pero nada los importaba, así que el pipeline seguía ejecutando lógica v1 (Solomon-como-jefe). Este release cablea Brain en el path de ejecución real.

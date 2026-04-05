@@ -5,6 +5,21 @@ description: How Karajan Code's architecture has evolved over time.
 
 This page documents the major architectural decisions and how Karajan Code evolved from a simple shell script orchestrator to a modular, multi-agent pipeline.
 
+## Phase 50.2: Brain coverage + UX overhaul (v2.0.2)
+
+**v2.0.2** — Extends Brain's coverage across all stages and makes `kj run` actually tell you what it's doing.
+
+**Added:**
+- **Brain compression + feedback queue across all stages**: researcher, architect, planner outputs are compressed for metrics; tester and security failures enter the typed feedback queue with enrichment for the next coder iteration.
+- **Brain owns max_iterations decision**: at max_iterations Brain inspects its feedback queue — security entries → pause for human (cannot finalize with unresolved security issues), correctness/tests → extend iterations, empty queue → finalize, style-only → consult Solomon as advisor. Solomon is never invoked directly from max_iterations anymore.
+- **Agent action lines in quiet mode**: `kj run` now interprets Claude's stream-json tool_use blocks into concise action lines (`Read packages/server/index.js`, `Bash $ npm install express`) so users see what the coder is doing without verbose mode.
+- **Heartbeat visible in quiet mode**: `agent:heartbeat` events (every 30s) are no longer suppressed — `kj run` shows `⏳ claude working — 45s elapsed` instead of looking hung during long agent calls.
+- **ASCII banner printed on `kj run`** regardless of TTY detection.
+
+**Changed:**
+- Rule alerts renamed from `solomon:alert` to `brain:rules-alert` (display: "⚠️ Rules alert" instead of "⚖️ Solomon alert"). The rules engine emits telemetry; it is not an invocation of Solomon.
+- All stage `onOutput` handlers route through the unified `emitAgentOutput` helper: `kind=tool` → `agent:action` (visible in quiet mode), others → `agent:output` (verbose only).
+
 ## Phase 50.1: Brain wired into the pipeline (v2.0.1)
 
 **v2.0.1** — Patch release that actually turns Brain on. v2.0.0 shipped the Brain modules but nothing imported them, so the pipeline still ran v1 logic (Solomon-as-boss). This release wires Brain into the real execution path.
