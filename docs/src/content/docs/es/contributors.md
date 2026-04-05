@@ -31,7 +31,7 @@ Karajan Code lo construye su comunidad. Gracias a todos los que han contribuido 
   <a href="https://github.com/reiaguilera" style="text-align: center; text-decoration: none; color: inherit;">
     <img src="https://avatars.githubusercontent.com/u/186906?v=4" width="80" height="80" style="border-radius: 50%;" alt="reiaguilera" />
     <br/><strong>Rei Aguilera</strong>
-    <br/><small>Beta testing y propuestas de mejora</small>
+    <br/><small>Beta testing, diseño y mejoras</small>
   </a>
 </div>
 
