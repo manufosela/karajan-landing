@@ -5,6 +5,22 @@ description: Cómo ha evolucionado la arquitectura de Karajan Code.
 
 Esta página documenta las decisiones arquitectónicas principales y cómo Karajan Code evolucionó desde un simple script orquestador hasta un pipeline modular multi-agente.
 
+## Fase 50.1: Brain cableado al pipeline (v2.0.1)
+
+**v2.0.1** — Release de parche que de verdad enciende Brain. v2.0.0 publicó los módulos de Brain pero nada los importaba, así que el pipeline seguía ejecutando lógica v1 (Solomon-como-jefe). Este release cablea Brain en el path de ejecución real.
+
+**Arreglado:**
+- `brainCtx` se crea en session init y se propaga a los stages de coder y reviewer
+- **Coder stage**: usa el prompt enriquecido de Brain desde la cola tipada; llama `verifyCoderRan` tras cada ejecución; el pipeline para tras N iteraciones consecutivas sin cambios
+- **Reviewer stage**: en rechazos de correctness/tests/security Brain bypasea Solomon y mete los issues tipados en la cola de feedback para la siguiente iteración. Solomon solo se consulta en dilemas de style-only.
+- **Brain es el único que escala al humano** — `solomon-rules` ya no pregunta al usuario directamente. Las alertas críticas (stale, deps nuevas) pasan por Brain → Solomon juez IA → humano (solo si ninguno resuelve).
+- **Brain consulta a Solomon activamente** en dilemas detectados y aplica su decisión (approve / continue / pause).
+- **Detección de stale** — los checkpoints del reviewer ahora guardan una signatura del feedback y los del coder guardan `filesChanged`. Antes ambos estaban vacíos/cero, causando que solomon-rules detectara "stale" falsamente tras 3 iteraciones con bugs diferentes.
+- **Crash de HU Board auto-start** en nvm/macOS (reportado por Jorge del Casar). `spawn('node', ...)` fallaba con ENOENT porque el subproceso detached no heredaba el PATH de node. Arreglado usando `process.execPath` + handler de error para que un fallo de HU Board nunca crashee el pipeline.
+
+**Cambiado:**
+- **Brain habilitado por defecto** (`brain.enabled: true`). v2 es arquitectura Brain; quien no lo quiera puede poner `brain.enabled: false`, pero la experiencia canónica v2 es Brain-on.
+
 ## Fase 50: Karajan Brain + Solomon Judge (v2.0.0)
 
 **v2.0.0** — Rediseño arquitectónico mayor. Introduce **Karajan Brain** como orquestador central con IA y refina **Solomon** de jefe del pipeline a juez IA consultado solo en dilemas genuinos.
