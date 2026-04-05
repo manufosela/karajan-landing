@@ -5,6 +5,18 @@ description: Cómo ha evolucionado la arquitectura de Karajan Code.
 
 Esta página documenta las decisiones arquitectónicas principales y cómo Karajan Code evolucionó desde un simple script orquestador hasta un pipeline modular multi-agente.
 
+## Fase 51: Auto-descomposición en HUs (v2.1.0)
+
+**v2.1.0** — Cierra el gap arquitectónico fundamental donde las tareas complejas se ejecutaban como un único pipeline gigante en vez de dividirse en historias atómicas. Desde v2.1, cuando triage recomienda descomposición, Karajan auto-genera un batch de HUs certificadas y ejecuta cada una como sub-pipeline independiente con su propia rama git, commit y PR opcional.
+
+**Añadido:**
+- **HU auto-generator** (`src/hu/auto-generator.js`) — convierte los subtasks de triage en un batch certificado de HUs, añadiendo un HU de setup automático cuando el proyecto es nuevo o hay stack hints. Cada HU se clasifica con `task_type` (infra/sw/add-tests/doc/refactor/nocode) para que las policy gates downstream apliquen por HU.
+- **Wiring triage → auto-gen → sub-pipeline**: tras triage + researcher + architect + planner, si triage marcó `shouldDecompose` y no se pasó `--hu-file` manual, el batch se persiste en `.karajan/hu/auto-<sid>/batch.json` y se inyecta como `stageResults.huReviewer`. La infraestructura existente `needsSubPipeline` / `runHuSubPipeline` lo recoge.
+- **max_iterations por HU** (`config.hu_max_iterations`, default 3) — cada HU tiene su presupuesto de iteraciones focalizado y un estado Brain limpio (feedback queue, verification tracker, extensionCount=0) para que issues de un HU nunca contaminen al siguiente.
+- **Automatización git por HU** (`src/git/hu-automation.js`) — cada HU crea su propia rama (`feat/HU-<id>-<slug>`) encadenada desde la rama del HU padre. Al aprobarse: commit atómico con `feat(HU-<id>): <título>`, opcionalmente push y PR (controlado por los flags existentes `git.auto_commit`/`auto_push`/`auto_pr`).
+
+**Por qué:** v2.0.x tenía un gap conocido — las tareas complejas activaban descomposición en triage pero el pipeline la ignoraba y lanzaba una invocación gigante del coder que producía blobs de 50 ficheros que reviewer y tester no podían validar bien. v2.1 cierra esto: tareas grandes se convierten en ramas/PRs atómicas, cada una con presupuesto de iteraciones focalizado, estado Brain fresco y semántica de fallo aislada. Reviewer, tester y security por fin pueden hacer su trabajo.
+
 ## Fase 50.2: Cobertura completa de Brain + revisión UX (v2.0.2)
 
 **v2.0.2** — Extiende la cobertura de Brain a todos los stages y hace que `kj run` diga de verdad qué está haciendo.

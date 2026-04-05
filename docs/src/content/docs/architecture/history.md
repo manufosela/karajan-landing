@@ -5,6 +5,18 @@ description: How Karajan Code's architecture has evolved over time.
 
 This page documents the major architectural decisions and how Karajan Code evolved from a simple shell script orchestrator to a modular, multi-agent pipeline.
 
+## Phase 51: Auto-HU Decomposition (v2.1.0)
+
+**v2.1.0** — Closes the fundamental architectural gap where complex tasks ran as one giant pipeline instead of splitting into atomic stories. From v2.1, when triage recommends decomposition, Karajan auto-generates a certified HU batch and runs each HU as an independent sub-pipeline with its own git branch, commit, and optional PR.
+
+**Added:**
+- **HU auto-generator** (`src/hu/auto-generator.js`) — converts triage subtasks into a certified HU batch with automatic setup HU when the project is new or has stack hints. Each HU classified into `task_type` (infra/sw/add-tests/doc/refactor/nocode) so downstream policy gates apply correctly per HU.
+- **Triage → auto-gen → sub-pipeline wiring**: after triage + researcher + architect + planner, if triage flagged `shouldDecompose` and no manual `--hu-file` was passed, the batch is persisted to `.karajan/hu/auto-<sid>/batch.json` and injected as `stageResults.huReviewer`. The existing `needsSubPipeline` / `runHuSubPipeline` infrastructure picks it up.
+- **Per-HU max_iterations** (`config.hu_max_iterations`, default 3) — each HU gets a focused iteration budget and a fresh Brain state (feedback queue, verification tracker, extension count reset to 0) so issues from one HU never bleed into the next.
+- **Per-HU git automation** (`src/git/hu-automation.js`) — each HU gets its own branch (`feat/HU-<id>-<slug>`) chained from its parent HU's branch. On approval: commits atomically with `feat(HU-<id>): <title>`, optionally pushes and opens a PR (gated by existing `git.auto_commit`/`auto_push`/`auto_pr` flags).
+
+**Why:** v2.0.x had a known gap — complex tasks triggered decomposition in triage but the pipeline ignored it and ran one giant coder invocation that produced 50-file blobs reviewers and testers couldn't validate properly. v2.1 closes this: big tasks become atomic branches/PRs, each with focused iteration budget, fresh Brain state, and isolated failure semantics. Reviewer, tester, and security can finally do their jobs.
+
 ## Phase 50.2: Brain coverage + UX overhaul (v2.0.2)
 
 **v2.0.2** — Extends Brain's coverage across all stages and makes `kj run` actually tell you what it's doing.
