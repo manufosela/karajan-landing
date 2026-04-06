@@ -5,6 +5,10 @@ description: Cómo ha evolucionado la arquitectura de Karajan Code.
 
 Esta página documenta las decisiones arquitectónicas principales y cómo Karajan Code evolucionó desde un simple script orquestador hasta un pipeline modular multi-agente.
 
+## Fase 53: Auditoría completa de Brain (v2.3.0)
+
+**v2.3.0** — Auditoría exhaustiva del orquestador encontró y arregló 21 violaciones legacy v1 donde Solomon se invocaba directamente (sin pasar por Brain), `session.task` se filtraba al contexto per-HU, o las mutaciones de feedback saltaban la cola de Brain. Cada stage ahora gatilla Solomon a través de Brain cuando está habilitado. El reviewer per-HU evalúa el scope del HU, no la spec completa. HU Board gana endpoint `/api/sync` para detección live de batches. Model registry actualizado con familias 2026 (Jorge del Casar #412).
+
 ## Fase 52: HU Board UX + Scope mínimo de HUs (v2.2.0 - v2.2.1)
 
 **v2.2.0** — Mejoras UX del HU Board: nombres de proyecto legibles derivados del prompt, endpoints DELETE + botón papelera por card, port fallback (4000→4009), auto-start al generar HUs con banner cyan destacado. Excluye `.kj/` worktrees de vitest.
