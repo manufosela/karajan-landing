@@ -5,6 +5,12 @@ description: How Karajan Code's architecture has evolved over time.
 
 This page documents the major architectural decisions and how Karajan Code evolved from a simple shell script orchestrator to a modular, multi-agent pipeline.
 
+## Phase 52: HU Board UX + Minimal HU scope (v2.2.0 - v2.2.1)
+
+**v2.2.0** — HU Board UX overhaul: human-readable project names derived from task prompt, DELETE endpoints + per-card delete button, port fallback (4000→4009), auto-start on auto-HU generation with highlighted cyan URL banner. Also excludes `.kj/` worktrees from vitest.
+
+**v2.2.1** — Critical fix: auto-generated HUs were too large because the setup HU embedded the full task description. Now setup HU says "DO NOT implement any business logic — ONLY project scaffolding" and task HUs target "<200 lines changed (like an atomic PR)". Legacy batch names derived from embedded "Part of:" text. Extended stopwords. Delete button moved to per-card.
+
 ## Phase 51: Auto-HU Decomposition (v2.1.0)
 
 **v2.1.0** — Closes the fundamental architectural gap where complex tasks ran as one giant pipeline instead of splitting into atomic stories. From v2.1, when triage recommends decomposition, Karajan auto-generates a certified HU batch and runs each HU as an independent sub-pipeline with its own git branch, commit, and optional PR.

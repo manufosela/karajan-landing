@@ -5,6 +5,12 @@ description: Cómo ha evolucionado la arquitectura de Karajan Code.
 
 Esta página documenta las decisiones arquitectónicas principales y cómo Karajan Code evolucionó desde un simple script orquestador hasta un pipeline modular multi-agente.
 
+## Fase 52: HU Board UX + Scope mínimo de HUs (v2.2.0 - v2.2.1)
+
+**v2.2.0** — Mejoras UX del HU Board: nombres de proyecto legibles derivados del prompt, endpoints DELETE + botón papelera por card, port fallback (4000→4009), auto-start al generar HUs con banner cyan destacado. Excluye `.kj/` worktrees de vitest.
+
+**v2.2.1** — Fix crítico: las HUs auto-generadas eran demasiado grandes porque la HU de setup incluía la descripción completa de la tarea. Ahora setup dice "DO NOT implement business logic — ONLY scaffolding" y las task HUs piden "<200 líneas (como un PR atómico)". Nombres legacy derivados del texto "Part of:" embebido. Stopwords ampliados. Botón borrar movido a per-card.
+
 ## Fase 51: Auto-descomposición en HUs (v2.1.0)
 
 **v2.1.0** — Cierra el gap arquitectónico fundamental donde las tareas complejas se ejecutaban como un único pipeline gigante en vez de dividirse en historias atómicas. Desde v2.1, cuando triage recomienda descomposición, Karajan auto-genera un batch de HUs certificadas y ejecuta cada una como sub-pipeline independiente con su propia rama git, commit y PR opcional.
