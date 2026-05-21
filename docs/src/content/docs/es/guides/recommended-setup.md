@@ -288,6 +288,154 @@ El objetivo de todo esto es un flujo que sobreviva a los errores:
 
 Si delegas cualquiera de los pasos 1-4 a una IA, hazlo como `ia-user` (§5). El flujo branch-y-PR confina los errores a una rama desechable.
 
+## 7. Escaneo de secretos antes del push
+
+El hook `commit-msg` de §2 bloquea atribución a IA; el hook `pre-push` bloquea algo más peligroso — pushear credenciales a un remote que no controlas. Una vez que los secretos están en GitHub, rotarlos es la única respuesta segura. Pre-push es tu última oportunidad de cazarlos en local.
+
+### git-secrets (basado en patrones)
+
+[`git-secrets`](https://github.com/awslabs/git-secrets) trae patrones de AWS por defecto y acepta regexes custom. Instálalo una vez y engánchalo al directorio global de hooks:
+
+```bash
+# Build + install (una sola vez)
+git clone https://github.com/awslabs/git-secrets.git /tmp/git-secrets
+sudo make -C /tmp/git-secrets install
+
+# Registrar patrones de AWS + instalar hooks globalmente
+git secrets --register-aws --global
+git secrets --install --global ~/.git-hooks
+
+# Patrones custom: tokens de GitHub, claves de GCP, API keys genéricas
+git secrets --add --global 'ghp_[A-Za-z0-9]{36}'
+git secrets --add --global 'AIza[0-9A-Za-z\-_]{35}'
+git secrets --add --global '(?i)(api[_-]?key|secret)[ \t=:"]+[A-Za-z0-9+/=_-]{20,}'
+```
+
+La herramienta instala tres handlers: `pre-commit`, `commit-msg` y `prepare-commit-msg`. Un match devuelve exit 1 con el fichero + línea para que arregles y reintentes. Permitir un falso positivo: `git secrets --add --allowed --global '<match exacto>'`.
+
+### `pre-push`: bloquear push directo a ramas protegidas
+
+La branch protection del servidor (§3) ya rechaza estos pushes, pero un hook `pre-push` local para la petición antes de salir de la máquina. Te ahorra minutos de CI y evita el incómodo "lo intenté, el remote lo rechazó":
+
+```bash
+#!/usr/bin/env bash
+# ~/.git-hooks/pre-push
+PROTECTED='^refs/heads/(main|master|production|release/.*)$'
+
+while read local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" =~ $PROTECTED ]]; then
+    echo "✗ Push directo a $remote_ref rechazado. Abre un PR." >&2
+    echo "  Override: git push --no-verify  (no lo hagas)." >&2
+    exit 1
+  fi
+done
+exit 0
+```
+
+`git-secrets` NO instala un hook `pre-push` por defecto, así que los dos conviven sin conflicto. Si llegas a necesitar combinar varios chequeos `pre-push`, encadénalos con un wrapper que salga al primer non-zero.
+
+<details>
+<summary>Setup real</summary>
+
+Un mantenedor mantiene solo el `pre-push` con branch-check globalmente y deja `git-secrets` por repo (vía `npm run secrets:scan` en CI). Razón: las listas de patrones drift por proyecto (un repo de fintech tiene shapes distintas que un sitio estático), y los patrones globales acaban siendo demasiado ruidosos o demasiado laxos.
+
+</details>
+
+## 8. Plantillas de repo en GitHub
+
+Un PR sin descripción es un code review a ciegas. Las plantillas hacen que la colaboración sea honesta por defecto.
+
+### Plantilla de PR
+
+Pon esto en `.github/PULL_REQUEST_TEMPLATE.md` en la raíz de cada repo:
+
+```markdown
+## Summary
+
+<!-- Una o dos frases: qué cambia y por qué. -->
+
+## Test plan
+
+- [ ] Los tests existentes pasan
+- [ ] Tests nuevos para el cambio
+- [ ] Probado manualmente en <navegador/OS/versión>
+- [ ] Sin atribución a IA en commits ni PR body
+
+## Checklist
+
+- [ ] PR atómica (una sola feature, fix o refactor)
+- [ ] Bajo ~200 LOC netas (o label `large-pr-justified` con justificación)
+- [ ] Ticket enlazado: <!-- ej. PRJ-TSK-0042 -->
+```
+
+Si tu equipo usa el plugin `code-review` de Karajan Code, esta checklist es lo que evalúa — mantenlas alineadas.
+
+### Plantillas de issue (form schema YAML)
+
+Los campos estructurados fuerzan bug reports usables. `.github/ISSUE_TEMPLATE/bug.yml`:
+
+```yaml
+name: Bug report
+description: Algo roto, con un repro limpio
+labels: [bug]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: Pasos para reproducir
+      placeholder: |
+        1. Ejecuta `...`
+        2. Clica en `...`
+        3. Observa `...`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamiento esperado
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      placeholder: "2.13.0"
+    validations:
+      required: true
+```
+
+Las flags `required: true` rechazan el "no funciona" en blanco. Añade un `feature.yml` con campos `idea` / `acceptance criteria` si tu equipo usa GitHub Issues para planificar.
+
+## 9. CODEOWNERS
+
+`.github/CODEOWNERS` enruta las review requests por fichero/directorio. Combinado con la regla de branch protection **Require review from Code Owners** (configurada en tu ruleset de §3), las reviews en rutas críticas no se pueden saltar:
+
+```
+# Por defecto — todo al mantenedor
+*  @maintainer-handle
+
+# Infra crítica — el equipo de seguridad firma
+/.github/workflows/   @maintainer-handle  @security-team
+/infra/               @ops-team
+/src/auth/            @maintainer-handle  @security-team
+
+# Pipeline de build/release — solo el release manager
+/.github/workflows/release-*.yml  @release-manager
+package.json                       @release-manager
+
+# Docs — auto-aprobación está bien
+/docs/  @maintainer-handle
+```
+
+El matching es **last-rule-wins** y soporta globs estilo gitignore. Verifica el routing tras pushear:
+
+```bash
+gh api repos/OWNER/REPO/codeowners/errors
+# {"errors": []}  → todos los paths resuelven a un owner conocido
+```
+
+Un array `errors` no vacío significa que al menos una línea del CODEOWNERS apunta a un usuario/equipo que no existe o no tiene acceso al repo. Arréglalo antes de exigir review de code-owners server-side; si no, los PRs que toquen esos paths se vuelven no-mergeables.
+
 ## Combinando las capas
 
 | Capa | Tiempo setup | Qué caza |
@@ -296,10 +444,13 @@ Si delegas cualquiera de los pasos 1-4 a una IA, hazlo como `ia-user` (§5). El 
 | `commit-msg` global | 2 min | Atribución IA en mensajes |
 | Denylist por agente | 5 min/agente | Comandos destructivos casuales |
 | Ruleset branch protection | 2 min/repo | Force-push, borrado de ramas |
+| `pre-push` + `git-secrets` | 10 min | Credenciales pusheadas por accidente |
+| Plantillas de PR/Issue | 5 min/repo | PRs sin contexto, bug reports en blanco |
+| `CODEOWNERS` + reviews requeridas | 5 min/repo | Rutas críticas mergeadas sin el reviewer correcto |
 | `ia-user` + ACLs | 15 min | Lo que escape del denylist del agente |
 | Backups Borg | 30 min | Lo que escape de todo lo demás |
 
-No necesitas las seis en el día uno. Empieza con SSH multi-cuenta + branch protection + el denylist del agente que uses; añade el usuario restringido la primera vez que delegues algo no trivial.
+No necesitas todas en el día uno. Empieza con SSH multi-cuenta + branch protection + el denylist del agente que uses; añade el usuario restringido y CODEOWNERS la primera vez que delegues algo no trivial en un repo que importe.
 
 ## Relacionado
 
