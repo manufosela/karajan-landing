@@ -1086,6 +1086,22 @@ Subsequent invocations: silent. Users with `KJ_HOME=...` in their shell rcfile a
 
 **Out of scope (backlog).** 38 direct `os.homedir()` calls in config / resolve-bin / devtools / webperf / leak-detector / postinstall bypass the unified resolver — they always write to `~/.karajan/` literally regardless of `KARAJAN_HOME` overrides. Tracked as [KJC-TSK-0420](https://planning-game.web.app); not blocking. Plus 4 code paths still build their own `~/.karajan/runs/` path; tracked as [KJC-TSK-0421](https://planning-game.web.app), pure DRY refactor.
 
+## Phase 73: Patch — kj board start packaging fix + home-consolidation housekeeping (v2.19.1)
+
+**v2.19.1** (patch, 2026-05-23) — 4 PRs (#789, #790, #791, #792 release). One **APPLICATION BLOCKER** fix plus the two follow-ups from the home-consolidation epic. v2.19.0 had shipped with a packaging bug that broke `kj board start` for every user on a fresh `npm install -g karajan-code`.
+
+**Headline fix — #791 (KJC-BUG-0056).** Reported by [@aitormf](https://github.com/aitormf). Two independent root causes combined to break the HU Board feature for every user installing from npm:
+
+1. **`packages/` not in the npm tarball.** The root `package.json::files` array listed `src/`, `bin/`, `templates/`, `scripts/` and a couple of docs — but NOT `packages/`. Confirmed via `npm pack --dry-run`: zero matches for `packages/hu-board/`. Even after `npm install -g karajan-code` completes successfully, the directory simply does not exist on disk and `kj board start` fails before `server.js` can be imported.
+
+2. **HU Board deps not at root.** Even when users copied `packages/hu-board/` manually (the fallback some tried), they got `Cannot find package 'helmet' imported from .../packages/hu-board/src/server.js` — because the five HU Board dependencies (`helmet`, `chokidar`, `better-sqlite3`, `express`, `express-rate-limit`) were declared in `packages/hu-board/package.json` but missing from root `dependencies`. `npm install -g karajan-code` only resolves root deps, not nested non-workspace sub-packages.
+
+Fix: add `packages/hu-board/{src,public,package.json}` to `files`; add the five HU Board deps to root `dependencies` at the exact versions the sub-package declares (so `npm dedupe` collapses to one copy resolvable by upward traversal from `server.js`); regenerate `package-lock.json`. Verified end-to-end: `npm pack` now ships 28 board files (vs 0 before); `node packages/hu-board/src/server.js` boots cleanly.
+
+**Internal — #790 (KJC-TSK-0420).** 38 direct `os.homedir()` callers routed through `src/utils/paths.js` helpers. `KARAJAN_HOME=/some/path kj <anything>` now redirects EVERY component to `/some/path/…` — not just plans / standby / sessions, but also webperf cache, run-registry, board prompt bridge, HU Board auth token, `hu-board.pid`, the board's config viewer, and the `kj doctor` dir-setup check. Three new helpers added (`getWebperfDir`, `getRunsDir`, `getPromptsDir`), and `packages/hu-board/src/db.js::getKjHome` gained `KARAJAN_HOME` priority. The legitimate non-Karajan callers (npm-global bin lookup, fs-leak detector, third-party app configs in `~/.claude.json` and `~/.codex/config.toml`) stay untouched.
+
+**Internal — #789 (KJC-TSK-0421).** 5 inline constructions of `~/.karajan/hu-board-runs/` (one in `garbage-collector.js`, four across the HU Board package) unified under one helper `getHuBoardRunsDir()` in `packages/hu-board/src/db.js`. Pure DRY — no semantic change. Closes the secondary deuda técnica from KJC-PCS-0047.
+
 ## Key Architectural Decisions
 
 ### CLI wrapping vs direct API calls

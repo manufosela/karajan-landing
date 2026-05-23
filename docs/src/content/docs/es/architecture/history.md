@@ -1085,6 +1085,22 @@ Invocaciones siguientes: silencioso. Usuarios con `KJ_HOME=...` en su rcfile ven
 
 **Fuera de scope (backlog).** 38 llamadas directas a `os.homedir()` en config / resolve-bin / devtools / webperf / leak-detector / postinstall bypasean el resolver unificado — siempre escriben en `~/.karajan/` literal sin respetar `KARAJAN_HOME`. Trackeado como [KJC-TSK-0420](https://planning-game.web.app); no bloquea. Más 4 paths del código construyen su propia ruta `~/.karajan/runs/`; trackeado como [KJC-TSK-0421](https://planning-game.web.app), refactor puro DRY.
 
+## Fase 73: Patch — fix de packaging de kj board start + housekeeping de la consolidación (v2.19.1)
+
+**v2.19.1** (patch, 2026-05-23) — 4 PRs (#789, #790, #791, #792 release). Un fix **APPLICATION BLOCKER** más los dos follow-ups de la épica de consolidación del directorio home. v2.19.0 había salido con un bug de packaging que rompía `kj board start` para todos los usuarios en una instalación nueva por `npm install -g karajan-code`.
+
+**Fix principal — #791 (KJC-BUG-0056).** Reportado por [@aitormf](https://github.com/aitormf). Dos causas independientes que se combinaban para romper la feature del HU Board en cualquier instalación nueva desde npm:
+
+1. **`packages/` no estaba en el tarball.** El array `package.json::files` del root listaba `src/`, `bin/`, `templates/`, `scripts/` y un par de docs — pero NO `packages/`. Confirmado vía `npm pack --dry-run`: cero archivos del HU Board. Incluso después de que `npm install -g karajan-code` completase con éxito, el directorio simplemente no existía en disco y `kj board start` fallaba antes de poder importar `server.js`.
+
+2. **Las deps del HU Board no estaban en el root.** Aunque los usuarios copiasen `packages/hu-board/` a mano (el workaround que algunos intentaron), conseguían `Cannot find package 'helmet' imported from .../packages/hu-board/src/server.js` — porque las cinco dependencias del HU Board (`helmet`, `chokidar`, `better-sqlite3`, `express`, `express-rate-limit`) estaban declaradas en `packages/hu-board/package.json` pero ausentes del `dependencies` del root. `npm install -g karajan-code` solo resuelve las deps del root, no las de sub-packages no-workspace.
+
+Fix: añadir `packages/hu-board/{src,public,package.json}` a `files`; añadir las cinco deps del HU Board al `dependencies` del root a las versiones exactas que declara el sub-package (para que `npm dedupe` colapse a una única copia alcanzable por traversal hacia arriba desde `server.js`); regenerar `package-lock.json`. Verificado end-to-end: `npm pack` envía ahora 28 archivos del board (vs 0 antes); `node packages/hu-board/src/server.js` arranca limpio.
+
+**Interno — #790 (KJC-TSK-0420).** 38 callers directos de `os.homedir()` enrutados por los helpers de `src/utils/paths.js`. `KARAJAN_HOME=/some/path kj <anything>` redirige ahora TODOS los componentes a `/some/path/…` — no solo plans / standby / sessions, sino también el cache de webperf, el run-registry, el board prompt bridge, el token de auth del HU Board, `hu-board.pid`, el config viewer del board, y el check de dir-setup de `kj doctor`. Tres helpers nuevos (`getWebperfDir`, `getRunsDir`, `getPromptsDir`), y `packages/hu-board/src/db.js::getKjHome` ganó prioridad de `KARAJAN_HOME`. Los callers no-Karajan legítimos (lookup de bin npm-global, fs-leak detector, configs de terceros en `~/.claude.json` y `~/.codex/config.toml`) quedan intactos.
+
+**Interno — #789 (KJC-TSK-0421).** 5 construcciones inline de `~/.karajan/hu-board-runs/` (una en `garbage-collector.js`, cuatro a lo largo del paquete HU Board) unificadas bajo un único helper `getHuBoardRunsDir()` en `packages/hu-board/src/db.js`. Refactor puro DRY — sin cambio semántico. Cierra la deuda técnica secundaria de KJC-PCS-0047.
+
 ## Decisiones Arquitectonicas Clave
 
 ### CLI wrapping vs llamadas directas a API
