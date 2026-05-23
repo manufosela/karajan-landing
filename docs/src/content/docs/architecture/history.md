@@ -1102,6 +1102,29 @@ Fix: add `packages/hu-board/{src,public,package.json}` to `files`; add the five 
 
 **Internal — #789 (KJC-TSK-0421).** 5 inline constructions of `~/.karajan/hu-board-runs/` (one in `garbage-collector.js`, four across the HU Board package) unified under one helper `getHuBoardRunsDir()` in `packages/hu-board/src/db.js`. Pure DRY — no semantic change. Closes the secondary deuda técnica from KJC-PCS-0047.
 
+## Phase 74: Patch — SonarQube 401 auto-recovery (v2.19.2)
+
+**v2.19.2** (patch, 2026-05-23) — 2 PRs (#793 fix, #794 release). Closes [KJC-BUG-0057](https://planning-game.web.app), the second bug Aitor reported on the same day as KJC-BUG-0056. The board fix in v2.19.1 unblocked `kj board start`, but `kj run` and `kj audit` were still failing for him with `SonarQube authentication failed (HTTP 401)` even though admin/admin worked in the Sonar UI.
+
+**Root cause.** `bootstrapSonarToken()` has lived in `src/sonar/token-bootstrap.js` since v2.10.2. It probes admin/admin against the Sonar host, rotates the default password if still in place (persisting the new one to `~/.karajan/sonar.admin-password`), revokes the existing `karajan-cli` token and generates a fresh `GLOBAL_ANALYSIS_TOKEN`. Solid plumbing. But it was **only invoked from `kj init`**. Every other code path that hit Sonar with a missing / stale / revoked / inconsistent-instance token just threw `SonarApiError` HTTP 401 with the hint "Regenerate with `kj init`" — putting the user in the loop for plumbing Karajan has the credentials to do itself.
+
+The user's feedback was unambiguous: *"Si karajan ve que no funciona sonar, que tiene el user/passw, que genere nuevo token, karajan debe tener capacidad de hacer esto y no tiene que hacerlo la IA, es algo programatico."*
+
+**Fix (#793).** New `src/sonar/token-recovery.js` exposing `recoverSonarToken(config, logger)`:
+
+1. **Per-process latch.** One Sonar run that 401s on N endpoints triggers ONE bootstrap attempt, not N.
+2. Calls `bootstrapSonarToken({ host: config.sonarqube.host })` — full v2.10.2 code path.
+3. **Mutates** `config.sonarqube.token` in place so the immediate retry uses the new token (no config reload).
+4. Persists to `~/.karajan/sonar-credentials.json` via `saveSonarToken` so future processes pick it up via the normal resolver chain instead of triggering recovery again.
+
+`src/sonar/api.js::sonarFetchOnce` gains a hidden `_retriedAfterRecovery` flag. On HTTP 401:
+
+- First call → `recoverSonarToken`, then recurse with `_retriedAfterRecovery=true`. If recovery succeeds, the retry uses the new token transparently and the caller never sees the 401.
+- Recovery fails → throw `SonarApiError` with a more actionable hint pointing at `~/.karajan/sonar-credentials.json` for saving admin credentials.
+- Retry still 401s → throw with a distinct hint about the Sonar instance being inconsistent.
+
+Programmatic. Zero LLM involvement. Reported by [@aitormf](https://github.com/aitormf).
+
 ## Key Architectural Decisions
 
 ### CLI wrapping vs direct API calls
