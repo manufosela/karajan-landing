@@ -1125,6 +1125,37 @@ The user's feedback was unambiguous: *"Si karajan ve que no funciona sonar, que 
 
 Programmatic. Zero LLM involvement. Reported by [@aitormf](https://github.com/aitormf).
 
+## Phase 74: HU Board canonical home dir (v2.19.3)
+
+**v2.19.3** (patch, 2026-05-23) — Closes KJC-BUG-0059. PR #795. Reported by [@aitormf](https://github.com/aitormf).
+
+The v2.19.0 home consolidation (Phase 72) renamed the canonical plans root from `~/.kj/plans/` to `~/.karajan/plans/` and shipped an auto-migrator that physically moved every existing plan. The migration itself worked — but five call sites under `packages/hu-board/` still had the legacy path baked in as a hard-coded default, surviving the consolidation because Phase 72 only touched `src/`. After the migrator ran (or after a user created any new plan post-v2.19.0), the plans lived under `~/.karajan/plans/<slug>/`; the board kept looking under `~/.kj/plans/<slug>/` and silently found nothing — so the board's UX collapsed even when the rest of `kj` worked perfectly.
+
+The user-visible symptoms were six:
+
+1. `GET /api/projects/:id/preflight` could not extract `projectDir` from any plan → the top card showed `Directorio del proyecto — no detectado` (the literal Aitor saw).
+2. `GET /api/projects/:id/plans-outcome` returned `plans: []` for every project that only had post-v2.19.0 plans.
+3. `DELETE /api/projects/:id` swept the wrong path, leaving residual `~/.karajan/plans/<slug>/` dirs on disk after a 🗑 delete.
+4. `DELETE /api/plans/:planId` scanned the wrong root → silently failed to remove the plan file.
+5. `packages/hu-board/src/preflight.js::checkPlans` found no plans even when valid plans existed.
+6. `packages/hu-board/src/plan-mutations.js::plansRoot` WROTE new per-HU run logs to the legacy root, splitting state across both dirs and never being GC'd by `cleanup-zombies.js` (which also scanned only the legacy root).
+
+The fix is two-layered, mirroring the resolver discipline established by Phase 72.
+
+**Layer 1 — three new exports in `packages/hu-board/src/db.js`:**
+
+- `getHuBoardPlansDir()` — canonical root (`~/.karajan/plans/`, or `KJ_PLANS_DIR` override).
+- `getHuBoardLegacyPlansDir()` — legacy root (`~/.kj/plans/`, null when `KJ_PLANS_DIR` is set so an explicit override cannot dual-scan).
+- `getHuBoardPlansDirs()` — ordered `[canonical, legacy?]` for read callers that need to iterate both during the migration window.
+
+**Layer 2 — callers split by intent.** Single-writer paths (`plan-mutations.js::plansRoot`) use the canonical resolver only. Every read / delete / GC path (the four `api.js` endpoints, `preflight.js::checkPlans`, `cleanup-zombies.js`) iterates `getHuBoardPlansDirs()` so users mid-migration with plans still under `~/.kj/` don't get a regression on top of the original bug.
+
+This keeps the board strictly future-canonical for new state (no more splitting writes across both roots) while remaining read-compatible with the legacy root until the auto-migrator from Phase 72 finishes moving everything. The legacy lookup will be removed once Karajan's telemetry indicates the migrator has run on > 99% of installs (tracked via the `.kj-migrated.json` marker file).
+
+29 hu-board test files / 349 tests stayed green through the fix — the existing suite already covered the relevant endpoints by mocking the env vars; the fix unblocked them too. No new tests were strictly required, but a future cohort of integration tests on the legacy-fallback path (planned for v2.20.0) will lock the behaviour in.
+
+LOC budget: +108 / -44, net +64. Inside the 200 hard limit. One PR, one bug card, one release — patch-sized fix for a patch-sized bug.
+
 ## Key Architectural Decisions
 
 ### CLI wrapping vs direct API calls
